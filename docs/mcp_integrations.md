@@ -1,15 +1,18 @@
-# MCP Integrations（Beta）
+# MCP 集成（Beta）
 
-Now This feature is diabled by default. You can enable it by setting the environment ENABLE_MCP_SERVER_CONFIGURATION to be true
+该功能目前**默认禁用**。
+你可以通过设置环境变量 `ENABLE_MCP_SERVER_CONFIGURATION=true` 来启用它。
 
-> [!WARNING]
-> Please enable this feature before securing your frond-end and back-end in a managed environment.
-> Otherwise, you system could be compromised.
+> [!警告]
+> 在受管环境中对前端和后端进行安全配置之前，请**先启用此功能**。
+> 否则，系统可能会面临安全风险或被入侵。
 
-This feature is diabled by default. You can enable it by setting the environment ENABLE_MCP_SERVER_CONFIGURATION
-Please enable this feature before securing your frond-end and back-end in an internal environment.q
+此功能默认关闭，你可以通过设置环境变量 `ENABLE_MCP_SERVER_CONFIGURATION` 来启用。
+请在为内部环境配置前后端安全性之前启用此功能。
 
-## Example of MCP Server Configuration
+---
+
+## MCP 服务器配置示例
 
 ```json
 {
@@ -18,30 +21,34 @@ Please enable this feature before securing your frond-end and back-end in an int
       "transport": "stdio",
       "command": "uvx",
       "args": [
-          "mcp-github-trending"
+        "mcp-github-trending"
       ]
     }
   }
 }
 ```
 
-## APIs
+---
 
-### Get metadata of MCP Server
+## API 接口说明
+
+### 获取 MCP 服务器的元数据
 
 **POST /api/mcp/server/metadata**
 
-For `stdio` type:
+#### 对于 `stdio` 类型：
+
 ```json
 {
   "transport": "stdio",
   "command": "npx",
   "args": ["-y", "tavily-mcp@0.1.3"],
-  "env": {"TAVILY_API_KEY":  "tvly-dev-xxx"}
+  "env": {"TAVILY_API_KEY": "tvly-dev-xxx"}
 }
 ```
 
-For `sse` type:
+#### 对于 `sse` 类型：
+
 ```json
 {
   "transport": "sse",
@@ -52,7 +59,8 @@ For `sse` type:
 }
 ```
 
-For `streamable_http` type:
+#### 对于 `streamable_http` 类型：
+
 ```json
 {
   "transport": "streamable_http",
@@ -63,7 +71,9 @@ For `streamable_http` type:
 }
 ```
 
-### Chat Stream
+---
+
+### 聊天流（Chat Stream）
 
 **POST /api/chat/stream**
 
@@ -83,6 +93,8 @@ For `streamable_http` type:
         "add_to_agents": ["researcher"]
       }
     }
-  },
+  }
 }
 ```
+
+---

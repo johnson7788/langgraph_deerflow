@@ -1,19 +1,5 @@
 # FAQ
 
-## Table of Contents
-
-- [Where's the name DeerFlow come from?](#wheres-the-name-deerflow-come-from)
-
-- [Which models does DeerFlow support?](#which-models-does-deerflow-support)
-
-## Where's the name DeerFlow come from?
-
-DeerFlow is short for **D**eep **E**xploration and **E**fficient **R**esearch **Flow**. It is named after the deer, which is a symbol of gentleness and elegance. We hope DeerFlow can bring a gentle and elegant deep research experience to you.
-
-## Which models does DeerFlow support?
-
-Please refer to the [Configuration Guide](configuration_guide.md) for more details.
-
 # 报错，和checkpoint无关, 获取的id方式从"id": event_data["__interrupt__"][0].ns[0] 改成"id": event_data["__interrupt__"][0].id, 可以考虑对langgraph降级
 2025-09-02 13:01:55,500 - root - WARNING - Checkpoint saver is disabled, message not processed
 ERROR:    Exception in ASGI application

@@ -1,79 +1,92 @@
-# Configuration Guide
+# 配置指南
 
-## Quick Settings
+## 快速设置
 
-Copy the `conf.yaml.example` file to `conf.yaml` and modify the configurations to match your specific settings and requirements.
+将 `conf.yaml.example` 文件复制为 `conf.yaml`，然后根据你的具体需求修改配置。
 
 ```bash
 cd deer-flow
 cp conf.yaml.example conf.yaml
 ```
 
-## Which models does DeerFlow support?
+## DeerFlow 支持哪些模型？
 
-In DeerFlow, we currently only support non-reasoning models. This means models like OpenAI's o1/o3 or DeepSeek's R1 are not supported yet, but we plan to add support for them in the future. Additionally, all Gemma-3 models are currently unsupported due to the lack of tool usage capabilities.
+在 DeerFlow 中，目前仅支持**非推理（non-reasoning）模型**。
+这意味着诸如 OpenAI 的 o1/o3 或 DeepSeek 的 R1 等推理模型暂不支持，但未来会加入支持。
+此外，由于缺乏工具调用能力，**Gemma-3 系列模型目前也不受支持**。
 
-### Supported Models
+### 支持的模型
 
-`doubao-1.5-pro-32k-250115`, `gpt-4o`, `qwen-max-latest`,`qwen3-235b-a22b`,`qwen3-coder`, `gemini-2.0-flash`, `deepseek-v3`, and theoretically any other non-reasoning chat models that implement the OpenAI API specification.
+`doubao-1.5-pro-32k-250115`、`gpt-4o`、`qwen-max-latest`、`qwen3-235b-a22b`、`qwen3-coder`、`gemini-2.0-flash`、`deepseek-v3`，以及理论上任何其他兼容 OpenAI API 规范的非推理聊天模型。
 
-> [!NOTE]
-> The Deep Research process requires the model to have a **longer context window**, which is not supported by all models.
-> A work-around is to set the `Max steps of a research plan` to `2` in the settings dialog located on the top right corner of the web page,
-> or set `max_step_num` to `2` when invoking the API.
+> [!注意]
+> 深度研究（Deep Research）流程要求模型具备**更长的上下文窗口**，并非所有模型都支持。
+> 临时解决方案：
+>
+> * 可在网页右上角的设置中，将 “研究计划的最大步骤数（Max steps of a research plan）” 设置为 `2`；
+> * 或在调用 API 时，将 `max_step_num` 设置为 `2`。
 
-### How to switch models?
-You can switch the model in use by modifying the `conf.yaml` file in the root directory of the project, using the configuration in the [litellm format](https://docs.litellm.ai/docs/providers/openai_compatible).
+### 如何切换模型？
+
+你可以在项目根目录下修改 `conf.yaml` 文件中的配置来切换模型，
+配置格式遵循 [litellm 格式规范](https://docs.litellm.ai/docs/providers/openai_compatible)。
 
 ---
 
-### How to use OpenAI-Compatible models?
+### 如何使用 OpenAI 兼容模型？
 
-DeerFlow supports integration with OpenAI-Compatible models, which are models that implement the OpenAI API specification. This includes various open-source and commercial models that provide API endpoints compatible with the OpenAI format. You can refer to [litellm OpenAI-Compatible](https://docs.litellm.ai/docs/providers/openai_compatible) for detailed documentation.
-The following is a configuration example of `conf.yaml` for using OpenAI-Compatible models:
+DeerFlow 支持与 **OpenAI-Compatible** 模型集成，即实现 OpenAI API 规范的模型。
+包括多种开源与商业模型（如通义千问、Doubao、Gemini、DeepSeek 等）。
+详细文档可参考 [litellm OpenAI-Compatible](https://docs.litellm.ai/docs/providers/openai_compatible)。
+
+以下是使用 OpenAI-Compatible 模型的 `conf.yaml` 示例：
 
 ```yaml
-# An example of Doubao models served by VolcEngine
+# Doubao 模型（火山引擎）
 BASIC_MODEL:
   base_url: "https://ark.cn-beijing.volces.com/api/v3"
   model: "doubao-1.5-pro-32k-250115"
   api_key: YOUR_API_KEY
 
-# An example of Aliyun models
+# 阿里云通义千问模型
 BASIC_MODEL:
   base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
   model: "qwen-max-latest"
   api_key: YOUR_API_KEY
 
-# An example of deepseek official models
+# DeepSeek 官方模型
 BASIC_MODEL:
   base_url: "https://api.deepseek.com"
   model: "deepseek-chat"
   api_key: YOUR_API_KEY
 
-# An example of Google Gemini models using OpenAI-Compatible interface
+# Google Gemini 模型（兼容 OpenAI 接口）
 BASIC_MODEL:
   base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
   model: "gemini-2.0-flash"
   api_key: YOUR_API_KEY
 ```
-The following is a configuration example of `conf.yaml` for using best opensource OpenAI-Compatible models:
+
+以下是使用最优开源 OpenAI-Compatible 模型的配置示例：
+
 ```yaml
-# Use latest deepseek-v3 to handle basic tasks, the open source SOTA model for basic tasks
+# 使用最新 deepseek-v3 处理基础任务（SOTA 模型）
 BASIC_MODEL:
   base_url: https://api.deepseek.com
   model: "deepseek-v3"
   api_key: YOUR_API_KEY
   temperature: 0.6
   top_p: 0.90
-# Use qwen3-235b-a22b to handle reasoning tasks, the open source SOTA model for reasoning
+
+# 使用 qwen3-235b-a22b 处理推理任务
 REASONING_MODEL:
   base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
   model: "qwen3-235b-a22b-thinking-2507"
   api_key: YOUR_API_KEY
   temperature: 0.6
   top_p: 0.90
-# Use qwen3-coder-480b-a35b-instruct to handle coding tasks, the open source SOTA model for coding
+
+# 使用 qwen3-coder-480b-a35b-instruct 处理编程任务
 CODE_MODEL:
   base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
   model: "qwen3-coder-480b-a35b-instruct"
@@ -81,10 +94,12 @@ CODE_MODEL:
   temperature: 0.6
   top_p: 0.90
 ```
-In addition, you need to set the `AGENT_LLM_MAP` in `src/config/agents.py` to use the correct model for each agent. For example:
+
+此外，你需要在 `src/config/agents.py` 中配置 `AGENT_LLM_MAP`，
+以便为不同的智能体分配正确的模型。例如：
 
 ```python
-# Define agent-LLM mapping
+# 定义智能体与模型的映射关系
 AGENT_LLM_MAP: dict[str, LLMType] = {
     "coordinator": "reasoning",
     "planner": "reasoning",
@@ -96,59 +111,77 @@ AGENT_LLM_MAP: dict[str, LLMType] = {
     "prose_writer": "basic",
     "prompt_enhancer": "basic",
 }
-
 ```
-### How to use models with self-signed SSL certificates?
 
-If your LLM server uses self-signed SSL certificates, you can disable SSL certificate verification by adding the `verify_ssl: false` parameter to your model configuration:
+---
+
+### 如何使用自签名 SSL 证书的模型？
+
+如果你的 LLM 服务器使用了自签名 SSL 证书，可以通过在配置中添加
+`verify_ssl: false` 来关闭 SSL 证书验证：
 
 ```yaml
 BASIC_MODEL:
   base_url: "https://your-llm-server.com/api/v1"
   model: "your-model-name"
   api_key: YOUR_API_KEY
-  verify_ssl: false  # Disable SSL certificate verification for self-signed certificates
+  verify_ssl: false  # 关闭 SSL 验证
 ```
 
-> [!WARNING]
-> Disabling SSL certificate verification reduces security and should only be used in development environments or when you trust the LLM server. In production environments, it's recommended to use properly signed SSL certificates.
+> [!警告]
+> 关闭 SSL 验证会降低安全性，仅应在开发环境或信任的服务器中使用。
+> 在生产环境中，建议使用正规签发的 SSL 证书。
 
-### How to use Ollama models?
+---
 
-DeerFlow supports the integration of Ollama models. You can refer to [litellm Ollama](https://docs.litellm.ai/docs/providers/ollama). <br>
-The following is a configuration example of `conf.yaml` for using Ollama models(you might need to run the 'ollama serve' first):
+### 如何使用 Ollama 模型？
+
+DeerFlow 支持与 **Ollama** 模型集成。可参考 [litellm Ollama 文档](https://docs.litellm.ai/docs/providers/ollama)。
+以下为示例配置（需先运行 `ollama serve`）：
 
 ```yaml
 BASIC_MODEL:
-  model: "model-name"  # Model name, which supports the completions API(important), such as: qwen3:8b, mistral-small3.1:24b, qwen2.5:3b
-  base_url: "http://localhost:11434/v1" # Local service address of Ollama, which can be started/viewed via ollama serve
-  api_key: "whatever"  # Mandatory, fake api_key with a random string you like :-)
+  model: "model-name"  # 例如 qwen3:8b, mistral-small3.1:24b
+  base_url: "http://localhost:11434/v1"
+  api_key: "whatever"  # 伪造 API key，可随意填写
 ```
 
-### How to use OpenRouter models?
+---
 
-DeerFlow supports the integration of OpenRouter models. You can refer to [litellm OpenRouter](https://docs.litellm.ai/docs/providers/openrouter). To use OpenRouter models, you need to:
-1. Obtain the OPENROUTER_API_KEY from OpenRouter (https://openrouter.ai/) and set it in the environment variable.
-2. Add the `openrouter/` prefix before the model name.
-3. Configure the correct OpenRouter base URL.
+### 如何使用 OpenRouter 模型？
 
-The following is a configuration example for using OpenRouter models:
-1. Configure OPENROUTER_API_KEY in the environment variable (such as the `.env` file)
+DeerFlow 支持与 **OpenRouter** 模型集成。参考 [litellm OpenRouter](https://docs.litellm.ai/docs/providers/openrouter)。
+
+配置步骤如下：
+
+1. 从 [OpenRouter 官网](https://openrouter.ai/) 获取 `OPENROUTER_API_KEY` 并设置到环境变量。
+2. 在模型名前添加前缀 `openrouter/`。
+3. 配置正确的 OpenRouter 基础 URL。
+
+示例：
+
 ```ini
+# 在环境变量或 .env 文件中配置
 OPENROUTER_API_KEY=""
 ```
-2. Set the model name in `conf.yaml`
+
 ```yaml
 BASIC_MODEL:
   model: "openrouter/google/palm-2-chat-bison"
 ```
 
-Note: The available models and their exact names may change over time. Please verify the currently available models and their correct identifiers in [OpenRouter's official documentation](https://openrouter.ai/docs).
+> 注意：可用模型名称可能随时间变化，请在
+> [OpenRouter 官方文档](https://openrouter.ai/docs) 中核实最新模型名称。
 
+---
 
-### How to use Azure OpenAI chat models?
+### 如何使用 Azure OpenAI 模型？
 
-DeerFlow supports the integration of Azure OpenAI chat models. You can refer to [AzureChatOpenAI](https://python.langchain.com/api_reference/openai/chat_models/langchain_openai.chat_models.azure.AzureChatOpenAI.html). Configuration example of `conf.yaml`:
+DeerFlow 支持与 **Azure OpenAI Chat** 模型集成。
+参考 [AzureChatOpenAI 文档](https://python.langchain.com/api_reference/openai/chat_models/langchain_openai.chat_models.azure.AzureChatOpenAI.html)。
+
+示例配置：
+
 ```yaml
 BASIC_MODEL:
   model: "azure/gpt-4o-2024-08-06"
@@ -157,26 +190,31 @@ BASIC_MODEL:
   api_key: $AZURE_OPENAI_API_KEY
 ```
 
-## About Search Engine
+---
 
-### How to control search domains for Tavily?
+## 关于搜索引擎
 
-DeerFlow allows you to control which domains are included or excluded in Tavily search results through the configuration file. This helps improve search result quality and reduce hallucinations by focusing on trusted sources.
+### 如何控制 Tavily 搜索的域名范围？
 
-`Tips`: it only supports Tavily currently. 
+DeerFlow 允许通过配置文件控制 Tavily 搜索结果的包含与排除域。
+这样可以聚焦可信来源，提高搜索质量，减少幻觉。
 
-You can configure domain filtering in your `conf.yaml` file as follows:
+> 提示：目前仅支持 Tavily。
+
+在 `conf.yaml` 中配置如下：
 
 ```yaml
 SEARCH_ENGINE:
   engine: tavily
-  # Only include results from these domains (whitelist)
+  # 只包含以下域（白名单）
   include_domains:
     - trusted-news.com
     - gov.org
     - reliable-source.edu
-  # Exclude results from these domains (blacklist)
+  # 排除以下域（黑名单）
   exclude_domains:
     - unreliable-site.com
     - spam-domain.net
+```
 
+---
