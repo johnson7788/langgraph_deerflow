@@ -204,3 +204,23 @@ reporter 汇总证据、产出最终报告与附件（如图片、引用）。
 
 结束：节点返回 Command(goto="__end__")，服务端关闭流。本线程的中间状态保留在 checkpoint，以便后续增量追问或生成播客/PPT。
 
+
+
+# podcast目录
+input(str)
+   │
+   ▼
+script_writer_node ──(Script)──► tts_node ──(list[bytes])──► audio_mixer_node ──(bytes)──► output(mp3)
+
+
+# Agents目录
+只有1个agents文件，创建一个 ReAct 风格的智能体（agent），它把模型选择、提示词模板渲染、工具注入等细节封装起来，外部只要给几个字符串与对象就能拿到可用的 agent。
+
+# config目录
+加载环境变量、读取/处理 YAML 配置、暴露内置问法、搜索/RAG 选择项、团队成员元数据，以及把这些配置项以统一方式导出给其他模块使用。
+作用：作为 config 包的总出口，集中加载 .env，并把常用配置对象/函数 re-export。
+
+# crawler
+crawler/* 代码把“网页 URL → 结构化文章 → 适合丢给 LLM 的消息块（文本 + 图片）”这一件事打通了：先用 Jina 抓取 HTML，再用 Readability 提取正文，再把 HTML 转成 Markdown，并把 Markdown 中的图片拆分成独立的“图片消息”。
+
+# Graph
