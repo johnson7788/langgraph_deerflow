@@ -22,7 +22,6 @@ from src.config.report_style import ReportStyle
 from src.config.tools import SELECTED_RAG_PROVIDER
 from src.graph.builder import build_graph_with_memory
 from src.llms.llm import get_configured_llm_models
-from src.ppt.graph.builder import build_graph as build_ppt_graph
 from src.prompt_enhancer.graph.builder import build_graph as build_prompt_enhancer_graph
 from src.prose.graph.builder import build_graph as build_prose_graph
 from src.rag.builder import build_retriever
@@ -30,8 +29,6 @@ from src.rag.retriever import Resource
 from src.server.chat_request import (
     ChatRequest,
     EnhancePromptRequest,
-    GeneratePodcastRequest,
-    GeneratePPTRequest,
     GenerateProseRequest,
     TTSRequest,
 )
@@ -426,25 +423,6 @@ async def text_to_speech(request: TTSRequest):
 
     except Exception as e:
         logger.exception(f"Error in TTS endpoint: {str(e)}")
-        raise HTTPException(status_code=500, detail=INTERNAL_SERVER_ERROR_DETAIL)
-
-
-@app.post("/api/ppt/generate")
-async def generate_ppt(request: GeneratePPTRequest):
-    try:
-        report_content = request.content
-        print(report_content)
-        workflow = build_ppt_graph()
-        final_state = workflow.invoke({"input": report_content})
-        generated_file_path = final_state["generated_file_path"]
-        with open(generated_file_path, "rb") as f:
-            ppt_bytes = f.read()
-        return Response(
-            content=ppt_bytes,
-            media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        )
-    except Exception as e:
-        logger.exception(f"Error occurred during ppt generation: {str(e)}")
         raise HTTPException(status_code=500, detail=INTERNAL_SERVER_ERROR_DETAIL)
 
 
