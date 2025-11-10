@@ -224,3 +224,246 @@ script_writer_node ──(Script)──► tts_node ──(list[bytes])──►
 crawler/* 代码把“网页 URL → 结构化文章 → 适合丢给 LLM 的消息块（文本 + 图片）”这一件事打通了：先用 Jina 抓取 HTML，再用 Readability 提取正文，再把 HTML 转成 Markdown，并把 Markdown 中的图片拆分成独立的“图片消息”。
 
 # Graph
+基于 LangGraph 的多智能体研究/写作流水线，带可选的持久化记忆与自定义检查点存储。
+这是一个有向状态图（state graph）：节点是“代理角色”（协调者/规划者/研究员/程序员/记者等），边表示节点间的流转逻辑。
+
+工作内存通过 State（继承自 MessagesState）在节点间传递，里面装着语言、主题、计划、观察结果、是否启用背景调查等。
+
+两种“记忆”：
+
+LangGraph 的内置 MemorySaver（易用）
+
+自定义的 ChatStreamManager（可选，用 MongoDB 或 PostgreSQL 把流式消息持久化）
+
+2) graph/types.py
+
+定义了全局状态 State（继承 MessagesState）：
+
+运行期字段（会在节点间传递）：
+
+locale: 语言（默认 en-US）
+
+research_topic: 研究主题
+
+observations: list[str]: 步骤执行产生的“观察/发现”
+
+resources: list[Resource]: RAG 资源（本地检索工具会用到）
+
+plan_iterations: int: 规划迭代计数
+
+current_plan: Plan | str: 当前计划（结构化 Plan 或原始 JSON 字符串）
+
+final_report: str: 最终报告
+
+auto_accepted_plan: bool: 是否自动接受计划（绕过人工反馈）
+
+enable_background_investigation: bool: 是否在规划前做背景检索
+
+background_investigation_results: str: 背景检索结果（字符串化）
+
+Plan、Resource 来自项目内 src.*。
+
+
+3) graph/builder.py
+
+负责装配状态图和条件流转：
+
+continue_to_running_research_team(state: State)
+
+在“研究小组”执行循环中，决定下一跳：
+
+若 current_plan 不存在或无步骤 → 回到 planner
+
+若所有步骤都有 execution_res → 回到 planner（表明需要新计划/总结）
+
+否则取第一个未完成的步骤：
+
+StepType.RESEARCH → 去 researcher
+
+StepType.PROCESSING → 去 coder
+
+其他类型 → 兜底到 planner
+
+_build_base_graph()
+
+节点：
+
+coordinator（协调对话/收集需求/触发 handoff）
+
+background_investigator（可选的预检索）
+
+planner（产出完整计划）
+
+human_feedback（可选的人类审阅/修改计划）
+
+research_team（调度循环）
+
+researcher（上网/本地检索、写发现）
+
+coder（代码/数据处理）
+
+reporter（按规范生成最终报告）
+
+边：
+
+START → coordinator
+
+background_investigator → planner
+
+research_team --(conditional)--> planner|researcher|coder（用上面的 continue_to_running_research_team）
+
+reporter → END
+
+build_graph_with_memory() / build_graph()
+
+前者使用 MemorySaver 做 LangGraph 的 checkpoint（记录对话/状态，便于恢复）
+
+后者是纯内存态（进程内）
+
+运行主线（典型流程）
+
+START → coordinator：收集主题、语言；如果协调者调用了 handoff_to_planner：
+
+若 enable_background_investigation=True：→ background_investigator → planner，否则直接 → planner
+
+planner 生成计划
+
+若“不足上下文” → → human_feedback（人审/编辑/接受）→ → research_team
+
+若“已足够” → → reporter（直接产出报告）→ END
+
+research_team 根据 continue_to_running_research_team(...)：
+
+有未完成步骤且类型为 RESEARCH → researcher 执行 → 回 research_team
+
+类型为 PROCESSING → coder 执行 → 回 research_team
+
+步骤都完成 → planner（可生成新计划或触发 reporter）
+
+reporter 汇总 observations+计划信息，按格式生成最终报告 → END
+
+# llms
+统一从 conf.yaml 与 环境变量 读取各类 LLM 的连接配置；
+
+依据类型（reasoning/basic/vision/code）实例化对应的 LangChain ChatModel；
+
+支持 Azure OpenAI、OpenAI 兼容接口、DeepSeek、阿里 DashScope（经自定义适配器）；
+
+实例缓存，避免重复创建连接对象。
+保留 reasoning_content
+一些“推理类”模型会在响应里附带 reasoning_content（思维链/草稿）。类中覆写：
+
+_create_chat_result(...)：若响应对象是 openai.BaseModel 并含 choices[0].message.reasoning_content，则把它塞进 generations[0].message.additional_kwargs["reasoning_content"]，供上层取用。
+
+更健壮的流式处理
+DashScope 可能提供两种风格的流：
+
+标准 chat.completions 的 streaming；
+
+beta.chat.completions.stream 的分块（type=...、content.delta 等结构）。
+
+本文件提供了两组辅助方法，把不同格式的 chunk 统一转换为 LangChain 的 ChatGenerationChunk：
+
+_convert_delta_to_message_chunk(...)
+把单个 delta 转为对应的 *MessageChunk，支持：
+
+role：user/assistant/system/developer/function/tool
+
+函数调用：function_call
+
+工具调用：tool_calls → tool_call_chunk(...)
+
+reasoning_content：若是 assistant 且包含则挂到 additional_kwargs
+
+用 message_id、tool_call_id 等保持一致性
+
+_convert_chunk_to_generation_chunk(...)
+
+处理 usage（转为 UsageMetadata）
+
+处理 choices[0].delta、finish_reason、model、system_fingerprint、logprobs
+
+跳过 content.delta 这类“纯通知块”
+
+产出 ChatGenerationChunk(message=..., generation_info=...)
+
+# prompt_enhanccer
+这个模块用 LangGraph 搭建了一个只有单个节点的工作流：
+
+状态类型定义在 state.py。
+
+真正执行“提示增强”的逻辑在 enhancer_node.py。
+
+图（workflow）的构建与编译在 builder.py。
+
+工作流的输入是待增强的 prompt（可选 context 与 report_style），输出是模型生成并解析后的 output（增强后的提示词）。
+
+builder = StateGraph(PromptEnhancerState)   # 指定状态类型
+builder.add_node("enhancer", prompt_enhancer_node)  # 加入唯一节点
+builder.set_entry_point("enhancer")         # 入口就是它
+builder.set_finish_point("enhancer")        # 结束也在它
+return builder.compile()                     # 编译得到可运行图对象
+
+
+# prompts 语法
+{% if report_style == "academic" %}
+这是学术风格的内容。
+{% elif report_style == "popular_science" %}
+这是科普风格的内容。
+{% else %}
+这是默认内容。
+{% endif %}
+
+二、语法说明（Jinja / Liquid 通用）
+模板语法	含义
+{% if condition %}	如果条件为真，渲染下面的内容
+{% elif condition %}	否则如果另一条件为真
+{% else %}	否则执行这部分
+{% endif %}	结束 if 语句块
+{{ variable }}	插入变量的值（例如 {{ CURRENT_TIME }} 会被替换为当前时间）
+
+# Prose 文章撰写
+“散文/文案写作工作流”，用 LangGraph 把多个“写作节点”（继续写、润色、变短、变长、纠错、自定义指令等）串成一张有条件分支的图，根据输入里的 option 自动走到对应节点，由节点调用 LLM 完成任务并把结果写回状态。
+
+    builder.add_conditional_edges(
+        START,
+        optional_node,
+        {
+            "continue": "prose_continue",
+            "improve": "prose_improve",
+            "shorter": "prose_shorter",
+            "longer": "prose_longer",
+            "fix": "prose_fix",
+            "zap": "prose_zap",
+        },
+        END,
+    )
+
+表示：图从 START 出发，先执行 optional_node(state)，得到一个字符串。
+
+如果返回值匹配到上面字典的某个 key，比如 "shorter"，就跳到对应的节点（"prose_shorter"）。
+
+最后一个参数 END 是默认分支：当返回值不在字典里（例如拼错、为空）时，直接到 END，图不执行任何节点就结束。
+
+# rag
+实现了一个“可插拔”的 RAG 检索层：通过统一的抽象 Retriever 接口，对接不同的后端（RAGFlow 与 VikingDB 知识库）。应用侧只关心“列资源、按资源检索文档”，至于底层调用哪个服务、如何鉴权与签名，都被封装起来了。
+
+# server
+
+技术栈：FastAPI + LangGraph/LangChain（消息流与工具调用）+ Pydantic v2（请求/响应模型）+ SSE 流式输出 +（可选）MongoDB/Postgres 做 LangGraph checkpoint。
+
+主要功能：
+
+聊天/智能体工作流的流式输出（/api/chat/stream）
+
+文字转语音（/api/tts，火山引擎）
+
+文稿生成为播客音频/PPT/散文（/api/podcast/generate、/api/ppt/generate、/api/prose/generate）
+
+Prompt 增强（/api/prompt/enhance）
+
+MCP Server 元数据探测（/api/mcp/server/metadata）
+
+RAG 配置与资源检索（/api/rag/config、/api/rag/resources）
+
+全局配置（/api/config）

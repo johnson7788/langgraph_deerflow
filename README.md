@@ -1,5 +1,13 @@
 # 🦌 DeerFlow
 
+# 启动服务端
+python server.py
+
+# 启动前端
+cd web
+pnpm dev
+
+
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
