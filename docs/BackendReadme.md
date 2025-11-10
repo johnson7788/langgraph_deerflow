@@ -467,3 +467,24 @@ MCP Server 元数据探测（/api/mcp/server/metadata）
 RAG 配置与资源检索（/api/rag/config、/api/rag/resources）
 
 全局配置（/api/config）
+
+
+# enable_background_investigation 
+enable_background_investigation 控制“在正式规划(plan)之前，是否先做一次自动的背景检索”。开了它，就会在 coordinator → background_investigator → planner 的路径上先跑一遍搜索，把检索结果喂给规划模型，提升首轮 Plan 的上下文充分度；
+文件：graph/nodes.py → coordinator_node
+
+协调器和用户对话后，会根据工具调用决定是否进入 planner：
+
+goto = "planner"
+if state.get("enable_background_investigation"):
+    goto = "background_investigator"
+
+
+也就是说：
+
+开关为 True ⇒ 下一跳是 "background_investigator"
+
+开关为 False ⇒ 下一跳直接是 "planner"
+
+builder 里已经把流程线连好了：
+START → coordinator，并在 _build_base_graph() 中注册了 background_investigator 节点，且 background_investigator → planner 的边也建好了。
