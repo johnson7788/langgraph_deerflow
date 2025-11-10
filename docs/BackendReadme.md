@@ -488,3 +488,299 @@ if state.get("enable_background_investigation"):
 
 builder 里已经把流程线连好了：
 START → coordinator，并在 _build_base_graph() 中注册了 background_investigator 节点，且 background_investigator → planner 的边也建好了。
+
+
+# state中的resources
+下面把你代码里「state 的 `resources` 到底从哪来、在链路上怎么被用到」完整梳理一遍，并给出关键节点与影响。
+
+---
+
+# 一、`resources` 的来源（谁提供它）
+
+1. **外部请求（客户端 / 前端）传入**
+
+* `ChatRequest` 模型允许在会话开始时把资源列表一起提交：
+  `src/server/chat_request.py` 定义了
+
+  ```py
+  class ChatRequest(BaseModel):
+      ...
+      resources: Optional[List[Resource]] = Field([], description="Resources to be used for the research")
+  ```
+* FastAPI 接口接收到请求后，会把这个字段一路传下去：
+  `src/server/app.py`
+
+  * `POST /api/chat` 路径中（你贴的是流式工作流的内部函数），参数 `request.resources` 被传入工作流生成器 `_astream_workflow_generator(...)`：
+
+    ```py
+    return StreamingResponse(
+        _astream_workflow_generator(
+            request.model_dump()["messages"],
+            thread_id,
+            request.resources,           # ← 传进来
+            ...
+        )
+    )
+    ```
+  * `_astream_workflow_generator` 把 `resources` 放进 `workflow_config`（LangGraph 的 runnable config）：
+
+    ```py
+    workflow_config = {
+        "thread_id": thread_id,
+        "resources": resources,          # ← 进入 config
+        ...
+    }
+    ```
+
+> 小结：**最直接的来源**通常是**客户端把资源选好后作为 `ChatRequest.resources` 发上来**（比如 UI 里让用户勾选知识库/文档集合）。
+
+2. **用于“列出可选资源”的辅助接口**
+
+* 你有一个单独的 GET 接口用来**枚举可用的 RAG 资源**，方便前端让用户先选：
+
+  ```py
+  @app.get("/api/rag/resources", response_model=RAGResourcesResponse)
+  async def rag_resources(request: Annotated[RAGResourceRequest, Query()]):
+      retriever = build_retriever()
+      if retriever:
+          return RAGResourcesResponse(resources=retriever.list_resources(request.query))
+      return RAGResourcesResponse(resources=[])
+  ```
+
+  * 底层会走具体 RAG 提供方的 `list_resources` 实现（见下文）。
+  * 前端通常先调用这个接口拿到资源列表（带 `uri`/`title`/`description`），用户选完后把选中的那些回传到 `ChatRequest.resources`。
+
+---
+
+# 二、`resources` 如何进入 LangGraph 的 state
+
+* `graph/types.py` 定义了图状态（State）有字段：
+
+  ```py
+  class State(TypedDict):
+      ...
+      resources: list[Resource] = []
+  ```
+* 在**入口节点**把 config 里的 `resources` 写入 state：
+  `src/graph/nodes.py`
+
+  ```py
+  update={
+      "messages": messages,
+      "locale": locale,
+      "research_topic": research_topic,
+      "resources": configurable.resources,   # ← 写入 state
+  },
+  ```
+* 这个 `configurable.resources` 来自 `Configuration`：
+  `src/config/configuration.py`
+
+  ```py
+  class Configuration:
+      resources: list[Resource] = field(default_factory=list)
+  ```
+* 而 `Configuration` 本身是从 runnable config 反序列化的（你在 `_astream_workflow_generator` 里组好的 `workflow_config`）。
+
+> 小结：**外部请求 → workflow_config → Configuration → State**。因此 `state["resources"]` 是你在 API 层传入的资源快照。
+
+---
+
+# 三、`resources` 被谁用、怎么用
+
+### 1) 驱动提示词与工具清单（Prompt & Tools 的条件化开启）
+
+* 研究代理的提示词 `src/prompts/researcher.md` 使用了 Jinja 条件：
+
+  ```jinja2
+  {% if resources %}
+  * local_search_tool：当用户在消息中提及时...
+  {% endif %}
+  * web_search：执行网页搜索
+  ```
+
+  和
+
+  ```jinja2
+  * 使用 {% if resources %}**local_search_tool** 或{% endif %}**web_search** ...
+  ```
+
+  含义是：**只有当 state 中存在资源时，才把本地检索工具写入提示词与执行策略里**。否则只剩网页搜索。
+
+* 同时在构建 researcher 节点时，也会把“请务必使用本地工具”的提醒插入到消息流里：
+  `src/graph/nodes.py`
+
+  ```py
+  if agent_name == "researcher":
+      if state.get("resources"):
+          resources_info = "**The user mentioned the following resource files:**\n\n"
+          for resource in state.get("resources"):
+              resources_info += f"- {resource.title} ({resource.description})\n"
+
+          agent_input["messages"].append(
+              HumanMessage(
+                  content=resources_info + "\n\nYou MUST use the **local_search_tool** ..."
+              )
+          )
+  ```
+
+  这确保**代理在有资源时优先使用本地检索**。
+
+### 2) 选择并注册合适的工具（Tool wiring）
+
+* 研究节点创建工具列表时，会**优先尝试创建检索器工具**并把它放在列表最前面（优先级更高）：
+
+  ```py
+  tools = [get_web_search_tool(...), crawl_tool]
+  retriever_tool = get_retriever_tool(state.get("resources", []))
+  if retriever_tool:
+      tools.insert(0, retriever_tool)  # ← 本地检索更靠前
+  ```
+* `get_retriever_tool(resources)` 的逻辑在 `src/tools/retriever.py`：
+
+  * 如果 `resources` 为空，直接返回 `None`（不注入工具）
+  * 否则 `build_retriever()` + `RetrieverTool(retriever=..., resources=resources)`
+* 该 `RetrieverTool`（本地检索工具）把 `resources` 存成成员变量，并在 `_run()` 时：
+
+  ```py
+  logger.info(..., extra={"resources": self.resources})
+  documents = self.retriever.query_relevant_documents(keywords, self.resources)
+  ```
+
+  即**每次查询都用你绑定的 `resources` 作为检索范围**。
+
+### 3) 底层 RAG Provider 如何使用 `resources`
+
+你支持至少两种实现（通过 `SELECTED_RAG_PROVIDER` 切换）：
+
+* **`vikingdb_knowledge_base.py`**
+
+  ```py
+  def query_relevant_documents(self, query, resources=[]):
+      if not resources:
+          return []
+      for resource in resources:
+          # 基于 resource.uri / id 列举文档、聚合 chunk → 返回 Document 列表
+  ```
+
+  * 如果没传资源，直接返回空结果 → 上层会 fallback 到 web 搜索。
+  * 该实现还有 `list_resources(query)`：向后端路径 `/api/knowledge/collection/list` 请求，返回拼成 `Resource(uri="rag://dataset/{id}", title=..., description=...)` 的列表，供上面 GET `/api/rag/resources` 使用。
+
+* **`ragflow.py`**
+
+  ```py
+  def query_relevant_documents(self, query, resources=[]):
+      dataset_ids, document_ids = ...
+      for resource in resources:
+          dataset_id, document_id = parse_uri(resource.uri)   # ← 从 URI 提取 id
+          ...
+      # 调用外部 RagFlow API /datasets/_search 之类，限定在这些 id
+  ```
+
+  * `list_resources` 同理请求 RagFlow 的 `/api/v1/datasets`，把结果映射为 `Resource`（注意这里你代码里有个小 bug，见下文）。
+
+> 结论：**底层检索实现会把 `resources` 当作“检索范围”的白名单**，通常通过 `resource.uri` 解析出 `dataset_id`/`document_id` 来限定搜索集合，返回的 `Document` 列表再被代理用于回答与引用。
+
+---
+
+# 四、整体数据流（从请求到使用）
+
+1. **前端**先调用 `GET /api/rag/resources?query=...` → 拿到可用资源（知识库集合/数据集）的列表；用户勾选想用的资源。
+2. **会话开始**时把选中的 `resources`（包含 `uri`/`title`/`description`）放进 `POST /api/chat` 的 `ChatRequest.resources`。
+3. **服务端**把 `resources` 注入到 workflow config → `Configuration` → **LangGraph `state.resources`**。
+4. **研究节点**：
+
+   * Prompt 中条件渲染工具提示（显示 `local_search_tool`）。
+   * 消息里追加“必须使用本地工具”的提醒。
+   * 工具装配：若有 `resources` 则创建 `RetrieverTool` 并放在工具列表最前。
+5. **执行检索**：`RetrieverTool._run` 调用底层 `retriever.query_relevant_documents(keywords, resources)`，**只在这些资源范围内查**；若无文档或无资源，则结果为空，代理策略会继续用 `web_search` 等工具补充。
+
+---
+
+# 五、行为特性与边界条件
+
+* **没有传 `resources`**：
+
+  * Prompt 不会出现 `local_search_tool`；
+  * `RetrieverTool` 不会被注入；
+  * 研究代理仅依赖 `web_search`/`crawl_tool` 等外部工具。
+* **传了 `resources` 但为空数组**：行为同上。
+* **传了无效 `resources`**（比如 `uri` 无法解析或数据集不存在）：
+
+  * 底层检索可能报错或返回空；
+  * 代理会 fallback 到其它搜索工具；
+  * 日志里会记录查询与 `resources`，有助排障。
+
+---
+
+# 六、你代码里值得注意的小问题/建议
+
+1. **`ragflow.py` 的 `list_resources` 返回值**
+   你在构造 `Resource` 后却把 `item` 加进列表：
+
+   ```py
+   resource = Resource(
+       uri=f"rag://dataset/{item.get('id')}",
+       title=item.get("name", ""),
+       description=item.get("description", ""),
+   )
+   resources.append(item)  # ← 这里应是 append(resource)
+   ```
+
+   应修正为：
+
+   ```py
+   resources.append(resource)
+   ```
+
+2. **可观测性**
+   你已经在 `RetrieverTool._run` 里记录了 `resources`；建议在**创建工具**和**底层 provider 查询**处也打更详细的日志（含 provider 名称、解析出来的 `dataset_ids`/`document_ids` 数量），方便定位“为什么没有命中本地文档”。
+
+3. **空资源的策略**
+   现在空资源直接不创建检索工具，这是合理的；也可以考虑**允许工具存在，但在 `_run` 里优先检测并返回更友好的说明**（比如“当前未选择任何本地知识库，已改用网页搜索”），提高可解释性。
+
+---
+
+# 七、最小工作示例（端到端）
+
+**1）列出资源（给前端用）：**
+
+```http
+GET /api/rag/resources?query=medical
+--> 200 OK
+{
+  "resources": [
+    {
+      "uri": "rag://dataset/abc123",
+      "title": "Clinical Guidelines",
+      "description": "Up-to-date guideline docs"
+    },
+    {
+      "uri": "rag://dataset/xyz789",
+      "title": "Case Studies",
+      "description": "Internal case study notes"
+    }
+  ]
+}
+```
+
+**2）开始会话时绑定资源：**
+
+```json
+POST /api/chat
+{
+  "messages": [{"role":"user","content":"什么是糖尿病足的最新处理建议？"}],
+  "resources": [
+    {"uri":"rag://dataset/abc123","title":"Clinical Guidelines","description":"Up-to-date guideline docs"}
+  ],
+  "debug": true
+}
+```
+
+**3）运行时效果：**
+
+* `state.resources` = 上面那一项；
+* researcher 的 prompt 中会出现 `local_search_tool`；
+* 工具顺序：`retriever_tool` 在最前，优先查 `rag://dataset/abc123`；
+* 若命中为空，再退回到 `web_search`。
+
+---
